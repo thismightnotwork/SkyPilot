@@ -1,87 +1,75 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Optional
+from radio_core import AircraftState
 
 try:
     from SimConnect import SimConnect, AircraftRequests
-    _SIMCONNECT_AVAILABLE = True
-except ImportError:
-    _SIMCONNECT_AVAILABLE = False
-
-from radio_core import AircraftState
-
-
-@dataclass
-class SimSnapshot:
-    lat: float
-    lon: float
-    alt_ft: float
-    com1_active_mhz: float
-    com1_standby_mhz: float
-    heading_deg: float
-    groundspeed_kts: float
-    on_ground: bool
+except Exception:
+    SimConnect = None
+    AircraftRequests = None
 
 
 class MSFSSimBridge:
-    """
-    SimConnect bridge for MSFS 2020 and MSFS 2024.
-    Both simulators expose identical SimConnect variable names for the data
-    SkyPilot needs, so one bridge class handles both versions.
+    """Bridge to MSFS 2020 and 2024 via SimConnect.
+    Falls back to a rotating demo state if SimConnect is unavailable.
     """
 
-    def __init__(self) -> None:
-        self._sm = None
-        self._aq = None
+    def __init__(self):
+        self.sm = None
+        self.aq = None
+        self._fallback_index = 0
+        self.available = False
 
-    @property
-    def connected(self) -> bool:
-        return self._sm is not None
+    def connect(self) -> bool:
+        if SimConnect is None or AircraftRequests is None:
+            self.available = False
+            return False
+        try:
+            self.sm = SimConnect()
+            self.aq = AircraftRequests(self.sm, _time=200)
+            self.available = True
+            return True
+        except Exception:
+            self.available = False
+            return False
 
-    def connect(self) -> None:
-        if not _SIMCONNECT_AVAILABLE:
-            raise RuntimeError("SimConnect Python library is not installed. Run: pip install SimConnect")
-        self._sm = SimConnect()
-        self._aq = AircraftRequests(self._sm, _time=200)
+    def disconnect(self):
+        self.sm = None
+        self.aq = None
+        self.available = False
 
-    def disconnect(self) -> None:
-        if self._sm:
-            self._sm.exit()
-            self._sm = None
-            self._aq = None
-
-    def snapshot(self) -> SimSnapshot:
-        if not self._aq:
-            raise RuntimeError("Not connected to simulator")
-        aq = self._aq
-        lat = float(aq.get("PLANE LATITUDE"))
-        lon = float(aq.get("PLANE LONGITUDE"))
-        alt_ft = float(aq.get("PLANE ALTITUDE"))
-        heading = float(aq.get("PLANE HEADING DEGREES TRUE"))
-        gs_kts = float(aq.get("GROUND VELOCITY"))
-        on_ground = bool(int(aq.get("SIM ON GROUND") or 0))
-        com1_hz = float(aq.get("COM ACTIVE FREQUENCY:1") or 122_800_000)
-        com1_stby_hz = float(aq.get("COM STANDBY FREQUENCY:1") or 121_500_000)
-        return SimSnapshot(
-            lat=lat,
-            lon=lon,
-            alt_ft=alt_ft,
-            com1_active_mhz=round(com1_hz / 1_000_000, 3),
-            com1_standby_mhz=round(com1_stby_hz / 1_000_000, 3),
-            heading_deg=round(heading, 1),
-            groundspeed_kts=round(gs_kts, 1),
-            on_ground=on_ground,
-        )
-
-    def to_aircraft_state(self, callsign: str, ptt: bool) -> AircraftState:
-        s = self.snapshot()
+    def _fallback_state(self, callsign: str, ptt_pressed: bool) -> AircraftState:
+        samples = [
+            (51.4706, -0.4619, 4500, 270, 190, 119.730, 121.500),
+            (51.3000, -0.2800, 3800, 250, 175, 118.005, 121.500),
+            (51.1537, -0.1821, 2200, 180, 160, 118.005, 121.500),
+        ]
+        s = samples[self._fallback_index % len(samples)]
+        self._fallback_index += 1
         return AircraftState(
             callsign=callsign,
-            lat=s.lat,
-            lon=s.lon,
-            alt_ft=s.alt_ft,
-            com1_active_mhz=s.com1_active_mhz,
-            com1_standby_mhz=s.com1_standby_mhz,
-            ptt_pressed=ptt,
-            radio_powered=True,
+            lat=s[0], lon=s[1], alt_ft=s[2], heading_deg=s[3],
+            groundspeed_kts=s[4], com1_active_mhz=s[5], com1_standby_mhz=s[6],
+            ptt_pressed=ptt_pressed,
         )
+
+    def to_aircraft_state(self, callsign: str, ptt_pressed: bool) -> AircraftState:
+        if not self.available or self.aq is None:
+            return self._fallback_state(callsign, ptt_pressed)
+        try:
+            lat = float(self.aq.get('PLANE LATITUDE'))
+            lon = float(self.aq.get('PLANE LONGITUDE'))
+            alt_ft = float(self.aq.get('PLANE ALTITUDE'))
+            heading_deg = float(self.aq.get('PLANE HEADING DEGREES TRUE'))
+            groundspeed_kts = float(self.aq.get('GROUND VELOCITY')) * 1.94384
+            com1_active_hz = float(self.aq.get('COM ACTIVE FREQUENCY:1'))
+            com1_standby_hz = float(self.aq.get('COM STANDBY FREQUENCY:1'))
+            return AircraftState(
+                callsign=callsign,
+                lat=lat, lon=lon, alt_ft=alt_ft,
+                heading_deg=heading_deg, groundspeed_kts=groundspeed_kts,
+                com1_active_mhz=round(com1_active_hz / 1_000_000.0, 3),
+                com1_standby_mhz=round(com1_standby_hz / 1_000_000.0, 3),
+                ptt_pressed=ptt_pressed,
+            )
+        except Exception:
+            return self._fallback_state(callsign, ptt_pressed)

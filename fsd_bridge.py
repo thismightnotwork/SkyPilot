@@ -1,68 +1,64 @@
 from __future__ import annotations
-"""
-Python stub that calls the Swift FSD CLI tool via subprocess for FSD protocol.
-The Swift layer handles: TCP connection, login, position pilot packets, pilot disconnect.
-"""
-import subprocess
+import socket
 import threading
-from pathlib import Path
+from typing import Optional
 from radio_core import AircraftState
 
 
-SWIFT_BINARY = Path(__file__).parent / "swift_fsd" / ".build" / "release" / "SkyFSD"
-
-
 class FSDConnection:
-    """Drives the Swift FSD CLI binary over stdin/stdout."""
+    """Minimal FSD TCP connection for SkyHigh.
 
-    def __init__(self, host: str, port: int, callsign: str, cid: str, password: str, name: str) -> None:
-        self.host = host
+    Sends pilot login and periodic position updates.
+    Reception and full FSD protocol parsing are stubs for future work.
+    """
+
+    def __init__(self, server: str, port: int, callsign: str, cid: str, password: str, name: str):
+        self.server = server
         self.port = port
         self.callsign = callsign
         self.cid = cid
         self.password = password
         self.name = name
-        self._proc: subprocess.Popen | None = None
+        self.sock: Optional[socket.socket] = None
+        self.connected = False
+        self._lock = threading.Lock()
 
-    def connect(self) -> None:
-        if not SWIFT_BINARY.exists():
-            raise FileNotFoundError(
-                f"Swift FSD binary not found at {SWIFT_BINARY}.\n"
-                "Run `swift build -c release` inside the swift_fsd/ directory first."
-            )
-        cmd = [
-            str(SWIFT_BINARY),
-            "--host", self.host,
-            "--port", str(self.port),
-            "--callsign", self.callsign,
-            "--cid", self.cid,
-            "--password", self.password,
-            "--name", self.name,
-        ]
-        self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-        threading.Thread(target=self._read_loop, daemon=True).start()
-
-    def send_position(self, state: AircraftState) -> None:
-        if not self._proc or self._proc.stdin is None:
-            return
-        line = f"POS {state.lat:.6f} {state.lon:.6f} {state.alt_ft:.1f}\n"
+    def connect(self) -> bool:
         try:
-            self._proc.stdin.write(line)
-            self._proc.stdin.flush()
-        except BrokenPipeError:
-            pass
+            self.sock = socket.create_connection((self.server, self.port), timeout=5)
+            self.sock.settimeout(None)
+            self.connected = True
+            self._send(f'#AA{self.callsign}:{self.cid}:{self.password}:1:9:{self.name}\r\n')
+            return True
+        except Exception:
+            self.connected = False
+            self.sock = None
+            return False
 
-    def disconnect(self) -> None:
-        if self._proc:
-            try:
-                self._proc.stdin.write("QUIT\n")
-                self._proc.stdin.flush()
-            except Exception:
-                pass
-            self._proc.terminate()
+    def _send(self, data: str):
+        with self._lock:
+            if self.sock and self.connected:
+                try:
+                    self.sock.sendall(data.encode('utf-8', errors='ignore'))
+                except Exception:
+                    self.connected = False
 
-    def _read_loop(self) -> None:
-        if not self._proc or self._proc.stdout is None:
+    def send_position(self, state: AircraftState):
+        if not self.connected:
             return
-        for line in self._proc.stdout:
-            print(f"[FSD] {line.rstrip()}")
+        msg = (
+            f'@N:{self.callsign}:2000:4:{state.lat:.5f}:{state.lon:.5f}:'
+            f'{int(state.alt_ft)}:{int(state.groundspeed_kts)}:{int(state.heading_deg)}\r\n'
+        )
+        self._send(msg)
+
+    def disconnect(self):
+        with self._lock:
+            if self.sock:
+                try:
+                    self._send(f'#DP{self.callsign}\r\n')
+                    self.sock.close()
+                except Exception:
+                    pass
+            self.sock = None
+            self.connected = False
