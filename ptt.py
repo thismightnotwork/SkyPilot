@@ -1,49 +1,53 @@
 from __future__ import annotations
 from typing import Callable, Optional
 
-try:
-    import keyboard
-    _KEYBOARD_AVAILABLE = True
-except ImportError:
-    _KEYBOARD_AVAILABLE = False
-
 
 class PTTController:
-    """
-    Monitors a configurable hotkey for push-to-talk.
-    Calls on_press / on_release callbacks on state change.
-    Does not require auto-sync with the simulator.
+    """Keyboard push-to-talk controller.
+
+    Uses the `keyboard` package for global hotkey detection.
+    Falls back gracefully if the package is unavailable or permissions are denied.
     """
 
-    def __init__(self, hotkey: str = "space", on_press: Optional[Callable] = None, on_release: Optional[Callable] = None) -> None:
+    def __init__(
+        self,
+        hotkey: str = 'space',
+        on_press: Optional[Callable] = None,
+        on_release: Optional[Callable] = None,
+    ):
         self.hotkey = hotkey
-        self.on_press = on_press or (lambda: None)
-        self.on_release = on_release or (lambda: None)
-        self._pressed = False
-        self._running = False
+        self.on_press = on_press
+        self.on_release = on_release
+        self.pressed = False
+        self._kb = None
+        self.active = False
 
-    def start(self) -> None:
-        if not _KEYBOARD_AVAILABLE:
-            raise RuntimeError("keyboard library not installed. Run: pip install keyboard")
-        self._running = True
-        keyboard.on_press_key(self.hotkey, self._handle_press)
-        keyboard.on_release_key(self.hotkey, self._handle_release)
+    def start(self) -> bool:
+        try:
+            import keyboard
+            self._kb = keyboard
+            keyboard.on_press_key(self.hotkey, lambda _: self._set(True), suppress=False)
+            keyboard.on_release_key(self.hotkey, lambda _: self._set(False), suppress=False)
+            self.active = True
+            return True
+        except Exception:
+            self.active = False
+            return False
 
-    def stop(self) -> None:
-        self._running = False
-        if _KEYBOARD_AVAILABLE:
-            keyboard.unhook_all()
+    def stop(self):
+        if self._kb:
+            try:
+                self._kb.unhook_all()
+            except Exception:
+                pass
+        self.active = False
+        self.pressed = False
 
-    @property
-    def pressed(self) -> bool:
-        return self._pressed
-
-    def _handle_press(self, _) -> None:
-        if not self._pressed:
-            self._pressed = True
+    def _set(self, value: bool):
+        if self.pressed == value:
+            return
+        self.pressed = value
+        if value and self.on_press:
             self.on_press()
-
-    def _handle_release(self, _) -> None:
-        if self._pressed:
-            self._pressed = False
+        elif not value and self.on_release:
             self.on_release()
