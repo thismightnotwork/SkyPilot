@@ -1,68 +1,33 @@
-# SkyPilot
+# SkyHigh Pilot ✈️
 
-SkyPilot is a development-ready pilot client for the SkyHigh network. It is designed to track simulator state, speak FSD using a swift-inspired wire format, and expose dual-COM radio state in a way that can later be bridged through a Murmur/Mumble voice backend.
+> The modern, all-in-one pilot client for the SkyHigh network.
 
-## Status
+SkyHigh Pilot bundles everything a virtual pilot needs into a single app:
 
-This repository is currently structured for active development before the SkyHigh FSD is online.
+- **FSD network connection** — connect to SkyHigh (or any FSD-compatible server)
+- **Integrated Mumble voice** — no separate voice app; COM1/COM2 radio channels routed through your Mumble voice server
+- **Model matching** — automatic aircraft model resolution with an inspectable match log
+- **SimConnect bridge** — live two-way data with MSFS/P3D (X-Plane adapter planned)
+- **Modern UI** — a clean, dark-mode PyQt6 interface inspired by xPilot and vPilot
 
-Implemented:
-- Python package layout for simulator, network, audio, and UI modules
-- MSFS SimConnect bridge with demo fallback mode
-- Dual COM radio model with COM1/COM2 active + standby tracking
-- FSD client scaffold using swift pilot client behaviour as protocol reference
-- FGCom-mumble style radio propagation/gating helpers
-- Push-to-talk handling for keyboard and optional joystick input
-- PySide6 desktop UI for telemetry and radio monitoring
+---
 
-Planned next:
-- Murmur ICE bridge for actual voice routing
-- Editable COM tuning from the client UI
-- ATIS / METAR display integration
-- X-Plane bridge
-- Packaging for Windows distribution
+## Architecture
 
-## Development
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
 ```
-
-Run the GUI client:
-
-```bash
-python skypilot.py
-```
-
-Run headless:
-
-```bash
-python skypilot.py --headless
-```
-
-## Project layout
-
-```text
-.
-├── skypilot.py
-├── requirements.txt
-├── setup.cfg
-├── docs/
-│   └── ARCHITECTURE.md
-├── sim/
-│   ├── __init__.py
-│   ├── aircraft_state.py
-│   └── simconnect_bridge.py
+skypilot.py          ← app entrypoint, wires all modules together
+│
+├── core/
+│   ├── session.py       ← pilot session state (callsign, squawk, position, flight plan)
+│   ├── config.py        ← persistent settings (JSON)
+│   └── events.py        ← internal pub/sub event bus
+│
 ├── network/
-│   ├── __init__.py
-│   └── fsd_client.py
-├── audio/
-│   ├── __init__.py
-│   ├── mumble_radio.py
-│   └── ptt.py
-└── ui/
-    ├── __init__.py
-    └── main_window.py
-```
+│   ├── fsd_client.py    ← FSD TCP connection, packet send/receive loop
+│   ├── fsd_parser.py    ← packet parsing and message dispatch
+│   └── fsd_protocol.py  ← packet builders (ADD, POS, PLAN, MSG, etc.)
+│
+├── voice/
+│   ├── mumble_client.py ← Mumble protocol client (pymumble)
+│   ├── radio_core.py    ← COM1/COM2 channel routing, PTT state
+│   └── ptt.py           ← global PTT key liste
