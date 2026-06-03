@@ -1,19 +1,3 @@
-# SkyPilot — SkyHigh Network pilot client
-# Core GUI
-PySide6>=6.7.0
-
-# Simulator connectivity (Windows only — installs but no-ops on Linux/macOS)
-SimConnect>=0.4.3
-
-# Mumble voice (FGCom-mumble style radio)
-pymumble_py3>=1.6
-
-# PTT hotkeys
-keyboard>=0.13.5
-
-# Optional — joystick PTT
-# pygame>=2.5.2
-
-# Optional — audio DSP (VHF effect, squelch noise)
-# sounddevice>=0.4.6
-# numpy>=1.26
+PySide6>=6.7
+pymumble_py3>=1.0.0
+pygame>=2.5

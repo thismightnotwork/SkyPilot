@@ -1,117 +1,105 @@
-"""
-aircraft_state.py — Core data models for SkyPilot.
-
-AircraftState mirrors the data swift-project/pilotclient reads from the sim:
-  https://github.com/swift-project/pilotclient/blob/main/src/blackmisc/simulation/simulatedaircraft.h
-
-FGCom-mumble compatible radio state is encoded in RadioState.
-"""
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from math import radians, sin, cos, sqrt, atan2
-
-EARTH_RADIUS_M = 6_371_000.0
-NM_TO_M        = 1_852.0
-FT_TO_M        = 0.3048
-
-
-def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    p1, p2 = radians(lat1), radians(lat2)
-    d_phi  = radians(lat2 - lat1)
-    d_lam  = radians(lon2 - lon1)
-    a = sin(d_phi / 2) ** 2 + cos(p1) * cos(p2) * sin(d_lam / 2) ** 2
-    return 2 * EARTH_RADIUS_M * atan2(sqrt(a), sqrt(1 - a))
-
-
-def radio_horizon_nm(alt_ft: float) -> float:
-    return 1.23 * max(0.0, alt_ft) ** 0.5
-
-
-def normalize_mhz(freq: float) -> float:
-    return round(freq, 3)
+from math import asin, cos, radians, sin, sqrt
+from typing import Iterable, List
 
 
 @dataclass
-class ComRadio:
-    active_mhz:  float = 121.800
+class RadioState:
+    active_mhz: float = 118.000
     standby_mhz: float = 121.500
-    powered:     bool  = True
-    tx_enabled:  bool  = True
-    rx_enabled:  bool  = True
+    powered: bool = True
+    ptt: bool = False
 
-    def swap(self) -> None:
-        self.active_mhz, self.standby_mhz = self.standby_mhz, self.active_mhz
+
+@dataclass
+class RadioSnapshot:
+    com1: RadioState = field(default_factory=RadioState)
+    com2: RadioState = field(default_factory=lambda: RadioState(active_mhz=121.500, standby_mhz=118.000))
+
+
+@dataclass
+class RemoteStation:
+    callsign: str
+    lat: float
+    lon: float
+    alt_ft: float
+    frequency_mhz: float
+    transmitting: bool = False
 
 
 @dataclass
 class AircraftState:
-    callsign:      str  = 'SH001'
-    aircraft_icao: str  = 'B738'
-    lat:        float = 51.1537
-    lon:        float = -0.1821
-    alt_ft:     float = 0.0
-    heading_deg:      float = 0.0
-    groundspeed_kts:  float = 0.0
+    callsign: str
+    latitude_deg: float = 51.1537
+    longitude_deg: float = -0.1821
+    altitude_ft: float = 0.0
+    groundspeed_kts: float = 0.0
+    heading_deg: float = 0.0
+    pitch_deg: float = 0.0
+    bank_deg: float = 0.0
     vertical_speed_fpm: float = 0.0
-    pitch_deg:        float = 0.0
-    bank_deg:         float = 0.0
-    squawk:     str  = '2000'
-    ident_active: bool = False
-    com1: ComRadio = field(default_factory=ComRadio)
-    com2: ComRadio = field(default_factory=lambda: ComRadio(active_mhz=121.500, standby_mhz=118.000))
-    ptt_com1: bool = False
-    ptt_com2: bool = False
-    sim_connected: bool = False
-    on_ground:     bool = True
+    on_ground: bool = True
+    transponder_code: str = "7000"
+    radios: RadioSnapshot = field(default_factory=RadioSnapshot)
 
+    def swap_com(self, index: int) -> None:
+        radio = self.radios.com1 if index == 1 else self.radios.com2
+        radio.active_mhz, radio.standby_mhz = radio.standby_mhz, radio.active_mhz
 
-@dataclass
-class ReceiverState:
-    callsign:   str
-    lat:        float
-    lon:        float
-    alt_ft:     float
-    tuned_mhz:  float
-    powered:    bool = True
+    def set_ptt(self, index: int, pressed: bool) -> None:
+        radio = self.radios.com1 if index == 1 else self.radios.com2
+        radio.ptt = pressed
 
+    def radio_horizon_nm(self) -> float:
+        return 1.23 * sqrt(max(self.altitude_ft, 0.0))
 
-@dataclass
-class GateDecision:
-    allowed:        bool
-    same_frequency: bool
-    in_range:       bool
-    distance_nm:    float
-    max_range_nm:   float
-    signal_quality: float
-    reason:         str
+    def radio_comment(self) -> str:
+        return (
+            "SKYHIGH-RADIO;"
+            f"CALLSIGN={self.callsign};"
+            f"LAT={self.latitude_deg:.6f};"
+            f"LON={self.longitude_deg:.6f};"
+            f"ALT_FT={self.altitude_ft:.1f};"
+            f"COM1_FRQ={self.radios.com1.active_mhz:.3f};"
+            f"COM1_PTT={int(self.radios.com1.ptt)};"
+            f"COM1_PWR={int(self.radios.com1.powered)};"
+            f"COM2_FRQ={self.radios.com2.active_mhz:.3f};"
+            f"COM2_PTT={int(self.radios.com2.ptt)};"
+            f"COM2_PWR={int(self.radios.com2.powered)}"
+        )
 
+    def visible_stations(self, stations: Iterable[RemoteStation]) -> List[dict]:
+        out = []
+        for station in stations:
+            if not station.transmitting:
+                continue
+            if not self._freq_matches(station.frequency_mhz):
+                continue
+            dist = self._distance_nm(self.latitude_deg, self.longitude_deg, station.lat, station.lon)
+            horizon = max(self.radio_horizon_nm(), 1.0) + 1.23 * sqrt(max(station.alt_ft, 0.0))
+            quality = max(0.0, 1.0 - (dist / horizon) ** 1.35) if dist <= horizon else 0.0
+            if quality < 0.02:
+                continue
+            out.append({
+                "callsign": station.callsign,
+                "frequency": station.frequency_mhz,
+                "distance_nm": dist,
+                "quality": quality,
+            })
+        return out
 
-class RadioGate:
-    FREQ_TOLERANCE_MHZ = 0.005
-    MIN_QUALITY        = 0.02
+    def _freq_matches(self, frequency_mhz: float) -> bool:
+        return any(
+            abs(frequency_mhz - local) <= 0.005
+            for local in (self.radios.com1.active_mhz, self.radios.com2.active_mhz)
+        )
 
-    def can_hear(self, tx: AircraftState, rx: ReceiverState, com: int = 1) -> GateDecision:
-        tx_radio = tx.com1 if com == 1 else tx.com2
-        ptt = tx.ptt_com1 if com == 1 else tx.ptt_com2
-
-        tx_freq = normalize_mhz(tx_radio.active_mhz)
-        rx_freq = normalize_mhz(rx.tuned_mhz)
-        same_freq = abs(tx_freq - rx_freq) <= self.FREQ_TOLERANCE_MHZ
-
-        if not tx_radio.powered or not rx.powered:
-            return GateDecision(False, same_freq, False, 0, 0, 0, 'radio_off')
-        if not ptt:
-            return GateDecision(False, same_freq, False, 0, 0, 0, 'ptt_not_pressed')
-        if not same_freq:
-            return GateDecision(False, False, False, 0, 0, 0, 'frequency_mismatch')
-
-        dist_nm    = haversine_m(tx.lat, tx.lon, rx.lat, rx.lon) / NM_TO_M
-        horizon_nm = radio_horizon_nm(tx.alt_ft) + radio_horizon_nm(rx.alt_ft)
-        in_range   = dist_nm <= horizon_nm
-
-        quality = 0.0 if horizon_nm <= 0 else max(0.0, 1.0 - (dist_nm / horizon_nm) ** 1.35)
-        allowed = in_range and quality >= self.MIN_QUALITY
-        reason  = 'ok' if allowed else ('out_of_range' if not in_range else 'weak_signal')
-        return GateDecision(allowed, True, in_range,
-                            round(dist_nm, 1), round(horizon_nm, 1),
-                            round(quality, 3), reason)
+    @staticmethod
+    def _distance_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        r = 3440.065
+        dlat = radians(lat2 - lat1)
+        dlon = radians(lon2 - lon1)
+        a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+        return 2 * r * asin(sqrt(a))
