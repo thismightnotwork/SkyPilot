@@ -33,5 +33,8 @@ add_executable(SkyHighPilot
     resources/qml.qrc
 )
 
-target_include_directories(SkyHighPilot PRIVATE src)
+target_include_directories(SkyHighPilot PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(SkyHighPilot PRIVATE Qt6::Core Qt6::Network Qt6::Qml Qt6::Quick Qt6::Multimedia)
+
+enable_testing()
+add_subdirectory(tests)
