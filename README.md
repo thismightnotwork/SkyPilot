@@ -1,33 +1,17 @@
-# SkyHigh Pilot ✈️
+# SkyHigh Pilot
 
-> The modern, all-in-one pilot client for the SkyHigh network.
+A modern C++/Qt6 pilot client for the SkyHigh virtual aviation network.
 
-SkyHigh Pilot bundles everything a virtual pilot needs into a single app:
+## Features
+- FSD protocol connection (swift-inspired logic)
+- Live traffic with dead-reckoning interpolation
+- Text messaging (UNICOM, private, SELCAL)
+- Mumble/FGCom-style voice integration
+- MSFS 2020/2024 and X-Plane sim connectors
+- QML-based UI (xPilot/vPilot style)
 
-- **FSD network connection** — connect to SkyHigh (or any FSD-compatible server)
-- **Integrated Mumble voice** — no separate voice app; COM1/COM2 radio channels routed through your Mumble voice server
-- **Model matching** — automatic aircraft model resolution with an inspectable match log
-- **SimConnect bridge** — live two-way data with MSFS/P3D (X-Plane adapter planned)
-- **Modern UI** — a clean, dark-mode PyQt6 interface inspired by xPilot and vPilot
+## Building
+See [docs/building.md](docs/building.md).
 
----
-
-## Architecture
-
-```
-skypilot.py          ← app entrypoint, wires all modules together
-│
-├── core/
-│   ├── session.py       ← pilot session state (callsign, squawk, position, flight plan)
-│   ├── config.py        ← persistent settings (JSON)
-│   └── events.py        ← internal pub/sub event bus
-│
-├── network/
-│   ├── fsd_client.py    ← FSD TCP connection, packet send/receive loop
-│   ├── fsd_parser.py    ← packet parsing and message dispatch
-│   └── fsd_protocol.py  ← packet builders (ADD, POS, PLAN, MSG, etc.)
-│
-├── voice/
-│   ├── mumble_client.py ← Mumble protocol client (pymumble)
-│   ├── radio_core.py    ← COM1/COM2 channel routing, PTT state
-│   └── ptt.py           ← global PTT key liste
+## Configuration
+Edit `src/app/Config.h` to set your FSD and Mumble server details.
