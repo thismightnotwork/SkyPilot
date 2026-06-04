@@ -1,0 +1,8 @@
+{
+  "name": "skyhigh-pilot",
+  "version": "1.0.0",
+  "dependencies": [
+    "protobuf",
+    "openssl"
+  ]
+}
