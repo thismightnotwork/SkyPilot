@@ -6,8 +6,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Network Qml Quick Multimedia)
+# ── Qt modules ──────────────────────────────────────────────────────────────
+find_package(Qt6 REQUIRED COMPONENTS Core Network Qml Quick QuickControls2 Multimedia Location Positioning)
 
+# ── Optional: MSFS SimConnect SDK ───────────────────────────────────────────
+# Set SIMCONNECT_SDK_DIR to the MSFS SDK path, e.g.:
+#   cmake -B build -DSIMCONNECT_SDK_DIR="C:/MSFS SDK/SimConnect SDK"
+# Without this the MSFS connector compiles but does nothing at runtime.
+if(DEFINED SIMCONNECT_SDK_DIR)
+    message(STATUS "[SkyHigh] SimConnect SDK: ${SIMCONNECT_SDK_DIR}")
+    add_compile_definitions(SKYHIGH_SIMCONNECT=1)
+    include_directories("${SIMCONNECT_SDK_DIR}/include")
+    link_directories("${SIMCONNECT_SDK_DIR}/lib/MSFS")
+endif()
+
+# ── Sources ─────────────────────────────────────────────────────────────────
 add_executable(SkyHighPilot
     src/main.cpp
     src/app/Application.cpp
@@ -34,7 +47,21 @@ add_executable(SkyHighPilot
 )
 
 target_include_directories(SkyHighPilot PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(SkyHighPilot PRIVATE Qt6::Core Qt6::Network Qt6::Qml Qt6::Quick Qt6::Multimedia)
+
+target_link_libraries(SkyHighPilot PRIVATE
+    Qt6::Core
+    Qt6::Network
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickControls2
+    Qt6::Multimedia
+    Qt6::Location
+    Qt6::Positioning
+)
+
+if(DEFINED SIMCONNECT_SDK_DIR)
+    target_link_libraries(SkyHighPilot PRIVATE SimConnect)
+endif()
 
 enable_testing()
 add_subdirectory(tests)

@@ -1,0 +1,31 @@
+{
+  "_comment": "SkyHigh Pilot model matching rules. Add entries here to override built-in defaults.",
+  "fallback": "default",
+  "rules": [
+    {
+      "_comment": "Example: BA 787-9 livery",
+      "aircraft_icao": "B789",
+      "airline_icao":  "BAW",
+      "model_path":    "CSL/Boeing/B787/B787-9_BAW",
+      "priority": 10
+    },
+    {
+      "aircraft_icao": "A20N",
+      "airline_icao":  "EZY",
+      "model_path":    "CSL/Airbus/A320neo/A320neo_EZY",
+      "priority": 10
+    },
+    {
+      "aircraft_icao": "A20N",
+      "airline_icao":  "RYR",
+      "model_path":    "CSL/Airbus/A320neo/A320neo_RYR",
+      "priority": 10
+    },
+    {
+      "aircraft_icao": "B738",
+      "airline_icao":  "BAW",
+      "model_path":    "CSL/Boeing/B737/B737-800_BAW",
+      "priority": 10
+    }
+  ]
+}
